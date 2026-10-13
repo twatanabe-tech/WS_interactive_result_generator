@@ -1,67 +1,76 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import io
 
 # ページの基本設定
 st.set_page_config(page_title="仮想実験シミュレーター", layout="wide")
 
 st.title("🧪 仮想実験シミュレーター")
-st.write("実験データのCSVファイルをアップロードし、条件を選択して仮想実験を実行します。")
+st.write("Excel等から予測平均と標準偏差の表をコピーし、下の枠に直接ペーストしてください。")
 
-# 1. ファイルアップロードUIの作成
-uploaded_file = st.file_uploader("実験データ (CSVファイル) をアップロードしてください", type=["csv"])
+# 1. データの入力 (テキストエリアへのペースト)
+pasted_text = st.text_area("ここにデータをペースト（ヘッダー行を含めてください）", height=200)
 
-if uploaded_file is not None:
-    # アップロードされたファイルを読み込む
-    df = pd.read_csv(uploaded_file)
-    
-    # 出力対象の特性（CSVの列名から推測）
-    target_properties = [
-        "L値", "a値", "b値", "光沢", "DOI", 
-        "ほう素溶出量", "フッ素溶出量", "耐酸性"
-    ]
-    
-    # 2. ユーザーインターフェース (入力条件の選択)
-    st.sidebar.header("🔬 実験条件の選択")
-    experiment_idx = st.sidebar.selectbox(
-        "実験パターン (行番号) を選択してください",
-        options=df.index,
-        format_func=lambda x: f"パターン {x+1}"
-    )
-    
-    # 選択された行のデータを取得
-    selected_row = df.loc[experiment_idx]
-    
-    # 入力条件の表示 (予測結果以外の列を抽出)
-    st.subheader("📝 選択された入力条件 (X)")
-    input_cols = [col for col in df.columns if "予測" not in col]
-    input_data = selected_row[input_cols].to_frame().T
-    st.dataframe(input_data, hide_index=True)
-    
-    # 3. 実行ボタンと仮想結果の生成
-    if st.button("🚀 この条件で実験を実行する", type="primary"):
-        st.divider()
-        st.subheader("📊 仮想実験結果 (Y)")
+if pasted_text:
+    try:
+        # ペーストされたテキスト（タブ区切り）をDataFrameとして読み込む
+        df = pd.read_csv(io.StringIO(pasted_text), sep='\t')
         
-        # 結果を表示するためのカラムを作成
-        cols = st.columns(4)
+        # タブ区切りで列が分かれなかった場合（カンマ区切り等を想定）のフォールバック
+        if len(df.columns) < 2:
+            df = pd.read_csv(io.StringIO(pasted_text), sep=',')
         
-        for i, prop in enumerate(target_properties):
-            mean_col = f"{prop} GP 予測平均値"
-            std_col = f"{prop} GP 予測標準偏差"
+        st.subheader("📝 読み込まれた入力データ")
+        st.dataframe(df)
+        
+        # 2. 実行ボタンと仮想結果の生成
+        if st.button("🚀 このデータで実験を実行する", type="primary"):
+            st.divider()
             
-            if mean_col in df.columns and std_col in df.columns:
-                mean_val = selected_row[mean_col]
-                std_val = selected_row[std_col]
+            # 「〇〇 GP 予測平均値」という列名から、出力対象の特性名を抽出
+            mean_cols = [c for c in df.columns if "予測平均値" in c]
+            
+            results = []
+            
+            # 各行（各実験パターン）ごとに処理
+            for index, row in df.iterrows():
+                simulated_row = {}
+                for mean_col in mean_cols:
+                    prop_name = mean_col.replace(" GP 予測平均値", "")
+                    std_col = f"{prop_name} GP 予測標準偏差"
+                    
+                    if std_col in df.columns:
+                        mean_val = pd.to_numeric(row[mean_col], errors='coerce')
+                        std_val = pd.to_numeric(row[std_col], errors='coerce')
+                        
+                        # 数値として正常に読み込めた場合のみ乱数生成
+                        if pd.notna(mean_val) and pd.notna(std_val):
+                            simulated_val = np.random.normal(loc=mean_val, scale=std_val)
+                            simulated_row[prop_name] = round(simulated_val, 3)
+                        else:
+                            simulated_row[prop_name] = None
                 
-                # 正規分布に従う乱数を生成して仮想の実験結果とする
-                simulated_value = np.random.normal(loc=mean_val, scale=std_val)
-                
-                # 結果をシンプルに数値のみ表示
-                with cols[i % 4]:
-                    st.metric(
-                        label=f"{prop}",
-                        value=f"{simulated_value:.3f}"
-                    )
-else:
-    st.info("👆 上のボタンからCSVファイルをアップロードすると、シミュレーターが起動します。")
+                results.append(simulated_row)
+            
+            # 結果をDataFrameに変換
+            result_df = pd.DataFrame(results)
+            # 行名を見やすく設定
+            result_df.index = [f"パターン {i+1}" for i in range(len(result_df))]
+            
+            # 3. 結果の表示 (コピペ可能な形式)
+            st.subheader("📊 仮想実験結果 (Y)")
+            
+            # 方法A: Streamlitの標準テーブル（右上にコピーボタンが自動で出ます）
+            st.dataframe(result_df)
+            
+            # 方法B: 確実にExcel等にタブ区切りで貼り付けられるテキスト出力
+            st.subheader("📋 コピー用テキスト")
+            st.text_area(
+                "以下のテキストを選択してコピーし、Excel等に貼り付けてください。", 
+                result_df.to_csv(sep='\t'), 
+                height=200
+            )
+
+    except Exception as e:
+        st.error(f"データの読み込みに失敗しました。コピーした表の形式を確認してください。\n詳細エラー: {e}")
