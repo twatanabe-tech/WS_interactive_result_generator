@@ -6,7 +6,7 @@ import numpy as np
 st.set_page_config(page_title="仮想実験シミュレーター", layout="wide")
 
 st.title("🧪 仮想実験シミュレーター")
-st.write("予測平均と予測標準偏差が含まれたCSVファイルをアップロードし、条件を選択して仮想実験を実行します。")
+st.write("実験データのCSVファイルをアップロードし、条件を選択して仮想実験を実行します。")
 
 # 1. ファイルアップロードUIの作成
 uploaded_file = st.file_uploader("実験データ (CSVファイル) をアップロードしてください", type=["csv"])
@@ -57,29 +57,11 @@ if uploaded_file is not None:
                 # 正規分布に従う乱数を生成して仮想の実験結果とする
                 simulated_value = np.random.normal(loc=mean_val, scale=std_val)
                 
-                # 結果をカード風に表示
+                # 結果をシンプルに数値のみ表示
                 with cols[i % 4]:
                     st.metric(
                         label=f"{prop}",
-                        value=f"{simulated_value:.3f}",
-                        delta=f"{simulated_value - mean_val:+.3f} (ランダム誤差)",
-                        delta_color="off"
+                        value=f"{simulated_value:.3f}"
                     )
-        
-        st.info("💡 実行ボタンを何度か押してみてください。標準偏差（ばらつきの大きさ）に応じた範囲で、毎回少しずつ異なる結果が返ってきます。")
-    
-    # 4. 参考：予測モデルの統計情報
-    with st.expander("🔍 裏側で使われている予測統計情報（平均と標準偏差）を確認"):
-        stats_data = []
-        for prop in target_properties:
-            mean_col = f"{prop} GP 予測平均値"
-            std_col = f"{prop} GP 予測標準偏差"
-            if mean_col in df.columns and std_col in df.columns:
-                stats_data.append({
-                    "特性": prop,
-                    "予測平均値 (μ)": selected_row[mean_col],
-                    "予測標準偏差 (σ)": selected_row[std_col]
-                })
-        st.dataframe(pd.DataFrame(stats_data), hide_index=True)
 else:
     st.info("👆 上のボタンからCSVファイルをアップロードすると、シミュレーターが起動します。")
